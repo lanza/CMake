@@ -8,6 +8,9 @@
 #include "cmMessenger.h"
 #include "cmRange.h"
 #include "cmSystemTools.h"
+#include "cmGlobalGenerator.h"
+#include "cmake.h"
+#include "HLDPServer/HLDP.h"
 
 class cmExecutionStatus;
 
@@ -62,6 +65,12 @@ bool cmMessageCommand::InitialPass(std::vector<std::string> const& args,
   }
 
   std::string message = cmJoin(cmMakeRange(i, args.end()), std::string());
+#ifdef CMAKE_BUILD_WITH_CMAKE
+  sp::HLDPServer* pServer =
+    Makefile->GetGlobalGenerator()->GetCMakeInstance()->GetDebugServer();
+  if (pServer)
+    pServer->OnMessageProduced(type, message);
+#endif
 
   if (type != MessageType::MESSAGE) {
     // we've overridden the message type, above, so display it directly

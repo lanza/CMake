@@ -5,13 +5,20 @@
 #include "cmAlgorithms.h"
 #include "cmExternalMakefileProjectGenerator.h"
 #include "cmFileMonitor.h"
+#include "cmGeneratorTarget.h"
 #include "cmGlobalGenerator.h"
 #include "cmJsonObjectDictionary.h"
 #include "cmJsonObjects.h"
+#include "cmLinkLineComputer.h"
+#include "cmListFileCache.h"
+#include "cmLocalGenerator.h"
+#include "cmMakefile.h"
 #include "cmServer.h"
 #include "cmServerDictionary.h"
+#include "cmSourceFile.h"
 #include "cmState.h"
 #include "cmSystemTools.h"
+#include "cmTarget.h"
 #include "cm_uv.h"
 #include "cmake.h"
 
@@ -503,6 +510,7 @@ cmServerResponse cmServerProtocol1::ProcessCompute(
 
   cmake* cm = this->CMakeInstance();
   int ret = cm->Generate();
+  cm->StopDebugServerIfNeeded();
 
   if (ret < 0) {
     return request.ReportError("Failed to compute build system.");
@@ -598,6 +606,13 @@ cmServerResponse cmServerProtocol1::ProcessConfigure(
   if (!cm->SetCacheArgs(cacheArgs)) {
     return request.ReportError("cacheArguments could not be set.");
   }
+
+  auto value = request.Data["sysprogsDebugServerPort"];
+  if (value.isInt()) 
+    cm->SetDebugServerPort(value.asInt());
+   else
+    cm->SetDebugServerPort(0);
+
 
   int ret = cm->Configure();
   if (ret < 0) {

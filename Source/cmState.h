@@ -30,6 +30,7 @@ class cmMessenger;
 class cmState
 {
   friend class cmStateSnapshot;
+  friend class HLDPServer;
 
 public:
   cmState();

@@ -647,6 +647,12 @@ set(SRCS
 
   cmDuration.h
   cmDuration.cxx
+
+  HLDPServer/BreakpointManager.cxx
+  HLDPServer/ExpressionBase.cxx
+  HLDPServer/HLDPServer.cxx
+  HLDPServer/RAIIScope.cxx
+  HLDPServer/ReplyBuilder.cxx
   )
 
 SET_PROPERTY(SOURCE cmProcessOutput.cxx APPEND PROPERTY COMPILE_DEFINITIONS

@@ -15,6 +15,7 @@
 #include "cmMakefile.h"
 #include "cmProperty.h"
 #include "cmPropertyMap.h"
+#include "cmServerDictionary.h"
 #include "cmSourceFile.h"
 #include "cmState.h"
 #include "cmStateDirectory.h"
@@ -209,6 +210,37 @@ struct hash<LanguageData>
 };
 
 } // namespace std
+
+static Json::Value DumpBacktrace(const cmListFileBacktrace& backtrace)
+{
+  Json::Value result = Json::arrayValue;
+
+  cmListFileBacktrace backtraceCopy = backtrace;
+  while (!backtraceCopy.Top().FilePath.empty()) {
+    Json::Value entry = Json::objectValue;
+    entry[kPATH_KEY] = backtraceCopy.Top().FilePath;
+    if (backtraceCopy.Top().Line) {
+      entry[kLINE_NUMBER_KEY] = (int)backtraceCopy.Top().Line;
+    }
+    if (!backtraceCopy.Top().Name.empty()) {
+      entry[kNAME_KEY] = backtraceCopy.Top().Name;
+    }
+    result.append(std::move(entry));
+    backtraceCopy = backtraceCopy.Pop();
+  }
+  return result;
+}
+
+static void DumpBacktraceRange(Json::Value& result, const std::string& type,
+                               const cmBacktraceRange& range)
+{
+  for (const auto& bt : range) {
+    Json::Value obj = Json::objectValue;
+    obj[kTYPE_KEY] = type;
+    obj[kBACKTRACE_KEY] = DumpBacktrace(bt);
+    result.append(obj);
+  }
+}
 
 static Json::Value DumpSourceFileGroup(const LanguageData& data,
                                        const std::vector<std::string>& files,

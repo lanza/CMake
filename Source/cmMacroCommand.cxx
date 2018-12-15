@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <utility>
 
+#include "cmake.h"
 #include "cmAlgorithms.h"
 #include "cmExecutionStatus.h"
 #include "cmMakefile.h"
@@ -95,7 +96,8 @@ bool cmMacroHelperCommand::InvokeInitialPass(
   // Invoke all the functions that were collected in the block.
   cmListFileFunction newLFF;
   // for each function
-  for (cmListFileFunction const& func : this->Functions) {
+  for (size_t i = 0; i < Functions.size(); i++) {
+    cmListFileFunction const& func = Functions[i];
     // Replace the formal arguments and then invoke the command.
     newLFF.Arguments.clear();
     newLFF.Arguments.reserve(func.Arguments.size());
@@ -139,6 +141,7 @@ bool cmMacroHelperCommand::InvokeInitialPass(
       inStatus.SetNestedError();
       return false;
     }
+
     if (status.GetReturnInvoked()) {
       inStatus.SetReturnInvoked();
       return true;
@@ -147,6 +150,16 @@ bool cmMacroHelperCommand::InvokeInitialPass(
       inStatus.SetBreakInvoked();
       return true;
     }
+
+#if defined(CMAKE_BUILD_WITH_CMAKE)
+    auto pDebugServer = Makefile->GetCMakeInstance()->GetDebugServer();
+    if (pDebugServer) {
+      bool skipThisInstruction = false;
+      i++;
+      pDebugServer->AdjustNextExecutedFunction(Functions, i);
+      i--;
+    }
+#endif
   }
   return true;
 }

@@ -4,6 +4,7 @@
 
 #include <sstream>
 
+#include "cmake.h"
 #include "cmAlgorithms.h"
 #include "cmExecutionStatus.h"
 #include "cmMakefile.h"
@@ -99,9 +100,9 @@ bool cmFunctionHelperCommand::InvokeInitialPass(
 
   // Invoke all the functions that were collected in the block.
   // for each function
-  for (cmListFileFunction const& func : this->Functions) {
+  for (size_t i = 0; i < Functions.size(); i++) {
     cmExecutionStatus status;
-    if (!this->Makefile->ExecuteCommand(func, status) ||
+    if (!this->Makefile->ExecuteCommand(Functions[i], status) ||
         status.GetNestedError()) {
       // The error message should have already included the call stack
       // so we do not need to report an error here.
@@ -109,9 +110,20 @@ bool cmFunctionHelperCommand::InvokeInitialPass(
       inStatus.SetNestedError();
       return false;
     }
+
     if (status.GetReturnInvoked()) {
       return true;
     }
+
+#if defined(CMAKE_BUILD_WITH_CMAKE)
+    auto pDebugServer = Makefile->GetCMakeInstance()->GetDebugServer();
+    if (pDebugServer) {
+      bool skipThisInstruction = false;
+      i++;
+      pDebugServer->AdjustNextExecutedFunction(Functions, i);
+      i--;
+    }
+#endif
   }
 
   // pop scope on the makefile
