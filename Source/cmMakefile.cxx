@@ -373,6 +373,19 @@ bool cmMakefile::ExecuteCommand(const cmListFileFunction& lff,
       if (this->GetCMakeInstance()->GetTrace()) {
         this->PrintCommandTrace(lff);
       }
+
+#if defined(CMAKE_BUILD_WITH_CMAKE)
+      std::unique_ptr<Sysprogs::HLDPServer::RAIIScope> pScope;
+      auto pDebugServer =
+        GlobalGenerator->GetCMakeInstance()->GetDebugServer();
+      bool skipThisInstruction = false;
+      if (pDebugServer)
+        pScope = pDebugServer->OnExecutingInitialPass(pcmd.get(), this, lff,
+                                                      skipThisInstruction);
+      if (skipThisInstruction)
+        return true;
+#endif
+
       // Try invoking the command.
       bool invokeSucceeded = pcmd->InvokeInitialPass(lff.Arguments, status);
       bool hadNestedError = status.GetNestedError();
@@ -635,6 +648,15 @@ void cmMakefile::ReadListFile(cmListFile const& listFile,
       // Exit early due to return command.
       break;
     }
+
+#if defined(CMAKE_BUILD_WITH_CMAKE)
+    auto pDebugServer = GlobalGenerator->GetCMakeInstance()->GetDebugServer();
+    if (pDebugServer) {
+      i++;
+      pDebugServer->AdjustNextExecutedFunction(listFile.Functions, i);
+      i--;
+    }
+#endif
   }
   this->CheckForUnusedVariables();
 
@@ -1968,6 +1990,11 @@ cmTarget* cmMakefile::AddExecutable(const std::string& exeName,
 cmTarget* cmMakefile::AddNewTarget(cmStateEnums::TargetType type,
                                    const std::string& name)
 {
+#if defined(CMAKE_BUILD_WITH_CMAKE)
+  auto* pDebugServer = GetCMakeInstance()->GetDebugServer();
+  if (pDebugServer)
+    pDebugServer->OnTargetCreated(type, name);
+#endif
   cmTargets::iterator it =
     this->Targets
       .insert(cmTargets::value_type(
