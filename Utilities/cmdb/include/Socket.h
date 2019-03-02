@@ -41,14 +41,14 @@ public:
     addr.sin_port = htons(tcpPort);
 
     if (inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr) <= 0) {
-      std::cout << "Invalid address\n";
+      std::cerr << "Invalid address\n";
+      exit(1);
     }
 
     if (connect(m_Socket, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-      printf("connect error: %s\n", strerror(errno));
+      std::cerr << "Failed to connect - error: " <<  strerror(errno) << '\n';
       closesocket(m_Socket);
       m_Socket = -1;
-      std::cout << "Failed to connect with ConnectSocket.\n";
     }
 
     char* buffer = new char[1024];
@@ -89,9 +89,7 @@ public:
       return false;
     int done = recv(m_Socket, (char *)pData, size, MSG_WAITALL);
     if (done < 0) {
-      printf("ReadAll::recv %s\n", strerror(errno));
-    } else {
-      printf("%d bytes received: %ld\n", done, (long)pData);
+      std::cerr << "ReadAll::recv: " << strerror(errno) << '\n';
     }
     return done == size;
   }

@@ -9,6 +9,8 @@
 
 #define CMAKE_PATH "/Users/lanza/Projects/CMake/build/bin/cmake"
 
+extern int SOCK;
+
 void CMakeInstance::RunCMake(Args& args) {
 
   // +3 to account for "--debug-server-port", the port and the NULL
@@ -20,7 +22,10 @@ void CMakeInstance::RunCMake(Args& args) {
     new_argv[i + 1] = original_argv[i];
   }
   new_argv[0] = CMAKE_PATH;
-  new_argv[1] = "--debug-server-port=9286";
+  std::string argv1 = "--debug-server-port=";
+  argv1 += std::to_string(SOCK);
+
+  new_argv[1] = argv1.c_str();
   new_argv[original_argc + 1] = NULL;
 
   for (int i = 0; i < original_argc + 1; i++) {

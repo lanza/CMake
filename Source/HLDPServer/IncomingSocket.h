@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cmSystemTools.h"
+#include <sys/errno.h>
 
 #ifdef _WIN32
 #include <WinSock2.h>
@@ -91,8 +92,9 @@ public:
     if (m_AcceptedSocket <= 0)
       return false;
     int done = recv(m_AcceptedSocket, (char *)pData, size, MSG_WAITALL);
-    printf("recv error: %s\n", strerror(errno));
-
+    if (done < 0) {
+      printf("recv error: %s\n", strerror(errno));
+    } 
     return done == size;
   }
 

@@ -15,3 +15,11 @@ target_link_libraries(cmdb
   libCMDB
   CMakeLib
   )
+
+find_library(EDITLINE edit /usr/lib)
+
+if (EDLITLINE-NOTFOUND)
+  message(FATAL_ERROR "Can't find libedit")
+endif()
+
+target_link_libraries(libCMDB ${EDITLINE})
