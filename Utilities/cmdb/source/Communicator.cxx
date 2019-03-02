@@ -12,16 +12,26 @@ void Communicator::ConnectToCMakeInstance(CMakeInstance &cmake_instance) {
 
   m_socket_up = std::make_unique<Socket>(SOCK);
 
-  sp::HLDPPacketType packet = ReceivePacket();
+  // handshake
+  RequestReader reader;
+  sp::HLDPPacketType packet = ReceivePacket(reader);
   if (packet == sp::HLDPPacketType::scHandshake) {
     SendPacket(sp::HLDPPacketType::csHandshake, nullptr);
   } else {
     std::cerr << "Unexpected packet: " << (unsigned)packet << '\n';
   }
+
+  // target stopped
+  packet = ReceivePacket(reader);
+  if (packet == sp::HLDPPacketType::scTargetStopped) {
+    m_cmake_instance_sp->TargetDidStop(reader);
+  } else {
+    // TODO(lanza): handle incorrect packets somewhere
+    std::cerr << "Unexpected packet: " << (unsigned)packet << '\n';
+  }
 }
 
-sp::HLDPPacketType Communicator::ReceivePacket() {
-  RequestReader reader;
+sp::HLDPPacketType Communicator::ReceivePacket(RequestReader &reader) {
   sp::HLDPPacketHeader header;
 
   if (!m_socket_up->ReadAll(&header, sizeof(header))) {

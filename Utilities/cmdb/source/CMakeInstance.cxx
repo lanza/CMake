@@ -44,4 +44,5 @@ void CMakeInstance::Launch(Args& args) {
   }
 }
 
-
+void CMakeInstance::TargetDidStop(RequestReader& reader) {
+}

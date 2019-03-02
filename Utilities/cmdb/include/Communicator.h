@@ -7,11 +7,14 @@
 #include <CMakeInstance.h>
 #include <Socket.h>
 
+#include <array>
+
 class Communicator : public std::enable_shared_from_this<Communicator> {
 public:
   Communicator() : m_socket_up(nullptr) {}
   void ConnectToCMakeInstance(CMakeInstance &cmake_instance);
-  sp::HLDPPacketType ReceivePacket();
+  std::array<char, 1024> buffer;
+  sp::HLDPPacketType ReceivePacket(RequestReader& reader);
   bool SendPacket(sp::HLDPPacketType packet_type, ReplyBuilder const *builder);
 
 private:
