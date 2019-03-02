@@ -1,0 +1,38 @@
+* vim listener
+* history
+* history completion
+* omni completion
+* fail to find command suggestions
+* ensure cleanup of socket stuff
+* parse args for -m to pass to vim
+* clean up socket choice / make uds
+* commands
+  * continue
+  * kill/quit
+  * breakpoint
+    * set
+    * list
+    * delete
+  * watchpoint
+    * set
+      * target created
+      * variable accessed
+      * variable updated
+    * list
+    * delete
+  * detach
+  * expression 
+    * children
+    * set 
+    * evaluate
+  * step
+    * over
+    * in
+    * out
+  * thread until
+  * handle packets
+    * TargetExited
+    * Error
+    * TargetStopped
+    * expressionChildrenQueried
+    * expressionCreated
