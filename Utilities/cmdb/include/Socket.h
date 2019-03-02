@@ -1,7 +1,7 @@
 #pragma once
 
-#include <unistd.h>
 #include <iostream>
+#include <unistd.h>
 
 #ifdef _WIN32
 #include <WinSock2.h>
@@ -26,12 +26,13 @@ static void closesocket(SOCKET socket) { close(socket); }
 class Socket {
 
 public:
-  Socket() :m_Socket(-1) {}
+  Socket() : m_Socket(-1) {}
   Socket(int tcpPort) : m_Socket(0) {
 
     sleep(1);
     if ((m_Socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-      std::cout << "Failed to create a listening socket for the debug server.\n";
+      std::cout
+          << "Failed to create a listening socket for the debug server.\n";
       return;
     }
 
@@ -46,12 +47,12 @@ public:
     }
 
     if (connect(m_Socket, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-      std::cerr << "Failed to connect - error: " <<  strerror(errno) << '\n';
+      std::cerr << "Failed to connect - error: " << strerror(errno) << '\n';
       closesocket(m_Socket);
       m_Socket = -1;
     }
 
-    char* buffer = new char[1024];
+    char *buffer = new char[1024];
     int i = ReadAllNoWait(buffer, 1024);
     if (i == 0) {
       std::cerr << "cmdb <-> cmake socket closed unexpectedly.\n";
@@ -60,7 +61,7 @@ public:
       std::cerr << "cmdb <-> cmake socket error: " << strerror(errno) << '\n';
       exit(1);
     } else {
-      char const* banner = "HLDPServer High-Level Debug Protocol";
+      char const *banner = "HLDPServer High-Level Debug Protocol";
       assert(strcmp(buffer, banner) == 0);
     }
   }

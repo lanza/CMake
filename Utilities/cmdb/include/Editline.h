@@ -6,8 +6,7 @@
 
 class Editline {
 public:
-
-  Editline() :m_hist_event(), m_editline(nullptr), m_history(nullptr) {
+  Editline() : m_hist_event(), m_editline(nullptr), m_history(nullptr) {
 
     m_editline = el_init("cmdb", stdin, stdout, stderr);
     el_set(m_editline, EL_PROMPT, &Editline::prompt);
@@ -24,7 +23,7 @@ public:
   }
 
   std::string GetLine() {
-    char const* line;
+    char const *line;
     int count;
     line = el_gets(m_editline, &count);
     char c;
@@ -40,13 +39,12 @@ public:
     history_end(m_history);
     el_end(m_editline);
   }
+
 private:
-  char const* prompt(EditLine* editline) {
-    return "(cmdb) ";
-  }
-  char const* m_prompt = "(cmdb) ";
+  char const *prompt(EditLine *editline) { return "(cmdb) "; }
+  char const *m_prompt = "(cmdb) ";
 
   HistEvent m_hist_event;
-  EditLine* m_editline;
-  History* m_history;
+  EditLine *m_editline;
+  History *m_history;
 };

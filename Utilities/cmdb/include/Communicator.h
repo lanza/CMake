@@ -14,7 +14,7 @@ public:
   Communicator() : m_socket_up(nullptr) {}
   void ConnectToCMakeInstance(CMakeInstance &cmake_instance);
   std::array<char, 1024> buffer;
-  sp::HLDPPacketType ReceivePacket(RequestReader& reader);
+  sp::HLDPPacketType ReceivePacket(RequestReader &reader);
   bool SendPacket(sp::HLDPPacketType packet_type, ReplyBuilder const *builder);
 
 private:

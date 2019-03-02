@@ -8,7 +8,6 @@
 #include <Command.h>
 #include <Utility.h>
 
-
 void CommandInterpreter::RunMainLoop() {
 
   while (true) {
@@ -31,16 +30,17 @@ CommandInterpreter::ParseCommandLine(std::string const &line) {
   std::string first_word = words[0];
 
   std::vector<CommandSP> filtered_commands{m_command_list.size()};
-  auto it = std::copy_if(
-      m_command_list.begin(), m_command_list.end(), filtered_commands.begin(),
-      [&](CommandSP const command_sp) {
-        if (command_sp->GetCommandString().compare(0, first_word.size(), first_word) == 0) {
-          return true;
-        } else {
-          return false;
-        }
-      });
-  filtered_commands.resize(std::distance(filtered_commands.begin(),it));
+  auto it =
+      std::copy_if(m_command_list.begin(), m_command_list.end(),
+                   filtered_commands.begin(), [&](CommandSP const command_sp) {
+                     if (command_sp->GetCommandString().compare(
+                             0, first_word.size(), first_word) == 0) {
+                       return true;
+                     } else {
+                       return false;
+                     }
+                   });
+  filtered_commands.resize(std::distance(filtered_commands.begin(), it));
 
   if (filtered_commands.size() > 1) {
     // TODO(lanza): do something to feed this to completions
