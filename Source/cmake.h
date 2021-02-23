@@ -32,7 +32,10 @@
 #  include <cm3p/json/value.h>
 
 #  include "cmCMakePresetsFile.h"
+
+#  include "HLDPServer/HLDPServer.h"
 #endif
+
 
 class cmExternalMakefileProjectGeneratorFactory;
 class cmFileAPI;
@@ -192,6 +195,12 @@ public:
   void SetHomeOutputDirectory(const std::string& dir);
   std::string const& GetHomeOutputDirectory() const;
   //@}
+
+#if !defined(CMAKE_BOOTSTRAP)
+  void StartDebugServerIfEnabled();
+  void StopDebugServerIfNeeded();
+  sp::HLDPServer* GetDebugServer() { return m_pDebugServer.get(); }
+#endif
 
   /**
    * Handle a command line invocation of cmake.
@@ -566,6 +575,8 @@ public:
 
   void UnwatchUnusedCli(const std::string& var);
   void WatchUnusedCli(const std::string& var);
+  unsigned GetDebugServerPort() const { return DebugServerPort; }
+  void SetDebugServerPort(unsigned port) { DebugServerPort = port; }
 
   cmState* GetState() const { return this->State.get(); }
   void SetCurrentSnapshot(cmStateSnapshot const& snapshot)
@@ -603,6 +614,11 @@ protected:
   bool GeneratorInstanceSet = false;
   bool GeneratorPlatformSet = false;
   bool GeneratorToolsetSet = false;
+
+  unsigned DebugServerPort = 0;
+#if !defined(CMAKE_BOOTSTRAP)
+  std::unique_ptr<sp::HLDPServer> m_pDebugServer;
+#endif
 
   //! read in a cmake list file to initialize the cache
   void ReadListFile(const std::vector<std::string>& args,

@@ -4,6 +4,8 @@
 cmake_minimum_required(VERSION 3.1...3.18 FATAL_ERROR)
 set(CMAKE_USER_MAKE_RULES_OVERRIDE_C ${CMAKE_CURRENT_SOURCE_DIR}/Source/Modules/OverrideC.cmake)
 set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX ${CMAKE_CURRENT_SOURCE_DIR}/Source/Modules/OverrideCXX.cmake)
+# set(CMAKE_CXX_COMPILER /usr/local/opt/llvm/bin/clang++)
+# set(CMAKE_C_COMPILER /usr/local/opt/llvm/bin/clang)
 project(CMake)
 unset(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX)
 unset(CMAKE_USER_MAKE_RULES_OVERRIDE_C)
@@ -44,6 +46,11 @@ if(NOT CMake_TEST_EXTERNAL_CMAKE)
 
   set(CMake_BIN_DIR ${CMake_BINARY_DIR}/bin)
 endif()
+
+# if(MSVC)
+#   set(CMAKE_CXX_FLAGS_RELEASE "/MT /O2 /Ob2 /GL /DNDEBUG /Zi")
+#   set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /LTCG /INCREMENTAL:NO /OPT:REF")
+# endif()
 
 if(CMake_GUI_DISTRIBUTE_WITH_Qt_LGPL)
   if(CMake_GUI_DISTRIBUTE_WITH_Qt_LGPL MATCHES "^3|2\\.1$")
@@ -334,6 +341,7 @@ macro(CMAKE_SET_TARGET_FOLDER tgt folder)
   endif()
 endmacro()
 
+find_package(glog REQUIRED)
 
 #-----------------------------------------------------------------------
 # a macro to build the utilities used by CMake

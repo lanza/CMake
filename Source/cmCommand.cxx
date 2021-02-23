@@ -24,6 +24,7 @@ bool cmCommand::InvokeInitialPass(const std::vector<cmListFileArgument>& args,
     // reported, so we can skip this command without error.
     return true;
   }
+
   return this->InitialPass(expandedArguments, status);
 }
 

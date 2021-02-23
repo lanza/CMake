@@ -14,6 +14,11 @@
 #include "cmLinkedTree.h"
 #include "cmString.hxx"
 
+namespace sp {
+class HLDPServer;
+class VariableExpression;
+}
+
 /** \class cmDefinitions
  * \brief Store a scope of variable definitions for CMake language.
  *
@@ -23,10 +28,13 @@
  */
 class cmDefinitions
 {
+
+  friend class sp::HLDPServer;
+  friend class sp::VariableExpression;
+
   using StackIter = cmLinkedTree<cmDefinitions>::iterator;
 
 public:
-  // -- Static member functions
 
   static const std::string* Get(const std::string& key, StackIter begin,
                                 StackIter end);

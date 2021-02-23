@@ -33,6 +33,7 @@ class cmExecutionStatus;
 class cmState
 {
   friend class cmStateSnapshot;
+  friend class HLDPServer;
 
 public:
   cmState();

@@ -158,7 +158,7 @@ static void cmWarnUnusedCliWarning(const std::string& variable, int /*unused*/,
 cmake::cmake(Role role, cmState::Mode mode)
   : FileTimeCache(cm::make_unique<cmFileTimeCache>())
 #ifndef CMAKE_BOOTSTRAP
-  , VariableWatch(cm::make_unique<cmVariableWatch>())
+  , VariableWatch(cm::make_unique<cmVariableWatch>(this))
 #endif
   , State(cm::make_unique<cmState>())
   , Messenger(cm::make_unique<cmMessenger>())
@@ -177,6 +177,9 @@ cmake::cmake(Role role, cmState::Mode mode)
   }
 #endif
 
+#if !defined(CMAKE_BOOTSTRAP)
+  this->VariableWatch = cm::make_unique<cmVariableWatch>(this);
+#endif
   this->AddDefaultGenerators();
   this->AddDefaultExtraGenerators();
   if (role == RoleScript || role == RoleProject) {
@@ -974,7 +977,15 @@ void cmake::SetArgs(const std::vector<std::string>& args)
                   << "uninitialized variables.\n";
         state->SetCheckSystemVars(true);
         return true;
-      } }
+      } },
+
+    CommandArgument{
+      "--debug-server-port=", CommandArgument::Values::One,
+      [&](std::string const& arg, cmake* state) -> bool {
+        auto value = atoi(arg.c_str());
+        state->DebugServerPort = value;
+        return true;
+      } },
   };
 
 #if defined(CMAKE_HAVE_VS_GENERATORS)
@@ -3060,6 +3071,10 @@ static bool cmakeCheckStampList(const std::string& stampList)
 void cmake::IssueMessage(MessageType t, std::string const& text,
                          cmListFileBacktrace const& backtrace) const
 {
+#if !defined(CMAKE_BOOTSTRAP)
+  if (m_pDebugServer)
+    m_pDebugServer->OnMessageProduced(t, text);
+#endif
   this->Messenger->IssueMessage(t, text, backtrace);
 }
 
@@ -3477,6 +3492,25 @@ bool cmake::GetDeprecatedWarningsAsErrors() const
 {
   return this->Messenger->GetDeprecatedWarningsAsErrors();
 }
+
+#if !defined(CMAKE_BOOTSTRAP)
+void cmake::StartDebugServerIfEnabled()
+{
+  if (!m_pDebugServer && DebugServerPort) {
+    m_pDebugServer.reset(new sp::HLDPServer(DebugServerPort));
+    if (!m_pDebugServer->WaitForClient()) {
+      cmSystemTools::Error("Failed to start debugging server. Aborting...");
+      cmSystemTools::SetFatalErrorOccured();
+    }
+  }
+}
+
+void cmake::StopDebugServerIfNeeded()
+{
+  if (m_pDebugServer)
+    m_pDebugServer.reset(nullptr);
+}
+#endif
 
 void cmake::SetDeprecatedWarningsAsErrors(bool b)
 {

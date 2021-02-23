@@ -1,3 +1,4 @@
+// vim: set ft=cpp :
 /* Distributed under the OSI-approved BSD 3-Clause License.  See accompanying
    file Copyright.txt or https://cmake.org/licensing for details.  */
 #include "cmConfigure.h" // IWYU pragma: keep
@@ -61,6 +62,8 @@
 #include "cmVersion.h"
 #include "cmWorkingDirectory.h"
 #include "cmake.h"
+
+#include "HLDPServer/RAIIScope.h"
 
 #ifndef CMAKE_BOOTSTRAP
 #  include "cmMakefileProfilingData.h"
@@ -453,6 +456,19 @@ bool cmMakefile::ExecuteCommand(const cmListFileFunction& lff,
       if (this->GetCMakeInstance()->GetTrace()) {
         this->PrintCommandTrace(lff, this->Backtrace.Top().DeferId);
       }
+
+#if !defined(CMAKE_BOOTSTRAP)
+      std::unique_ptr<sp::RAIIScope> pScope;
+      auto pDebugServer =
+        GlobalGenerator->GetCMakeInstance()->GetDebugServer();
+      bool skipThisInstruction = false;
+      if (pDebugServer)
+        pScope = pDebugServer->OnExecutingInitialPass(command, this, lff,
+                                                      skipThisInstruction);
+      if (skipThisInstruction)
+        return true;
+#endif
+
       // Try invoking the command.
       bool invokeSucceeded = command(lff.Arguments(), status);
       bool hadNestedError = status.GetNestedError();
@@ -788,6 +804,15 @@ void cmMakefile::RunListFile(cmListFile const& listFile,
       // Exit early due to return command.
       break;
     }
+
+#if !defined(CMAKE_BOOTSTRAP)
+    auto pDebugServer = GlobalGenerator->GetCMakeInstance()->GetDebugServer();
+    if (pDebugServer) {
+      i++;
+      pDebugServer->AdjustNextExecutedFunction(listFile.Functions, i);
+      i--;
+    }
+#endif
   }
 
   // Run any deferred commands.
@@ -2093,6 +2118,11 @@ cmTarget* cmMakefile::AddExecutable(const std::string& exeName,
 cmTarget* cmMakefile::AddNewTarget(cmStateEnums::TargetType type,
                                    const std::string& name)
 {
+#if !defined(CMAKE_BOOTSTRAP)
+  auto* pDebugServer = GetCMakeInstance()->GetDebugServer();
+  if (pDebugServer)
+    pDebugServer->OnTargetCreated(type, name);
+#endif
   auto it = this->Targets
               .emplace(name,
                        cmTarget(name, type, cmTarget::VisibilityNormal, this,
@@ -2550,6 +2580,20 @@ bool cmMakefile::GetDefExpandList(const std::string& name,
   }
   cmExpandList(*def, out, emptyArgs);
   return true;
+}
+
+std::vector<std::pair<std::string, std::string>>
+cmMakefile::GetDefinitionsAndValues() const {
+  auto defs = GetDefinitions();
+
+  std::vector<std::pair<std::string, std::string>> result;
+
+  for (const auto &def : defs) {
+    auto p = std::make_pair(def, *GetDefinition(def));
+    result.push_back(std::move(p));
+  }
+
+  return result;
 }
 
 std::vector<std::string> cmMakefile::GetDefinitions() const

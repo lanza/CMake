@@ -1,0 +1,39 @@
+* continue cleaning up socket
+** look into what could be done
+** refactor duplicate socket code
+* history
+** store
+** completion
+* omni completion
+* handle signals
+** from child
+** to command interpreter
+* connect child to pty?
+* parse args for -m to pass to vim
+* regex commands?
+* commands
+** help
+** breakpoint
+*** set
+**** parsing
+**** decide on form to pass in file/line format and function format
+**** file/line
+*** delete
+** watchpoint
+*** set
+*** target created
+*** variable accessed
+*** variable updated
+*** list
+*** delete
+** expression
+*** children
+*** set
+*** evaluate
+** thread until
+* handle packets
+** TargetExited
+** Error
+** TargetStopped
+** expressionChildrenQueried
+** expressionCreated

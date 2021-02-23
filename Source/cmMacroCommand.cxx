@@ -10,6 +10,9 @@
 #include <cmext/algorithm>
 #include <cmext/string_view>
 
+#include "cmake.h"
+#include "cmAlgorithms.h"
+
 #include "cmExecutionStatus.h"
 #include "cmFunctionBlocker.h"
 #include "cmListFileCache.h"
@@ -82,7 +85,8 @@ bool cmMacroHelperCommand::operator()(
   }
   // Invoke all the functions that were collected in the block.
   // for each function
-  for (cmListFileFunction const& func : this->Functions) {
+  for (size_t i = 0; i < Functions.size(); i++) {
+    cmListFileFunction const& func = Functions[i];
     // Replace the formal arguments and then invoke the command.
     std::vector<cmListFileArgument> newLFFArgs;
     newLFFArgs.reserve(func.Arguments().size());
@@ -125,6 +129,7 @@ bool cmMacroHelperCommand::operator()(
       inStatus.SetNestedError();
       return false;
     }
+
     if (status.GetReturnInvoked()) {
       inStatus.SetReturnInvoked();
       return true;
@@ -133,6 +138,16 @@ bool cmMacroHelperCommand::operator()(
       inStatus.SetBreakInvoked();
       return true;
     }
+
+#if !defined(CMAKE_BOOTSTRAP)
+    auto pDebugServer = makefile.GetCMakeInstance()->GetDebugServer();
+    if (pDebugServer) {
+      bool skipThisInstruction = false;
+      i++;
+      pDebugServer->AdjustNextExecutedFunction(Functions, i);
+      i--;
+    }
+#endif
   }
   return true;
 }

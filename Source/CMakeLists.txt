@@ -739,6 +739,12 @@ set(SRCS
   cmDuration.cxx
 
   bindexplib.cxx
+
+  HLDPServer/BreakpointManager.cxx
+  HLDPServer/ExpressionBase.cxx
+  HLDPServer/HLDPServer.cxx
+  HLDPServer/RAIIScope.cxx
+  HLDPServer/ReplyBuilder.cxx
   )
 
 SET_PROPERTY(SOURCE cmProcessOutput.cxx APPEND PROPERTY COMPILE_DEFINITIONS
@@ -910,6 +916,7 @@ target_link_libraries(CMakeLib cmsys
   ${CMAKE_LIBRHASH_LIBRARIES}
   ${CMake_KWIML_LIBRARIES}
   ${CMAKE_THREAD_LIBS_INIT}
+  glog::glog
   )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "sparc")

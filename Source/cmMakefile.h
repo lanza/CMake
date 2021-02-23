@@ -493,6 +493,9 @@ public:
    */
   std::vector<std::string> GetDefinitions() const;
 
+  std::vector<std::pair<std::string, std::string>> GetDefinitionsAndValues()
+    const;
+
   /**
    * Test a boolean variable to see if it is true or false.
    * If the variable is not found in this makefile instance, the

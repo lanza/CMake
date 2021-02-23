@@ -1,0 +1,994 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import socket
+import time
+from enum import Enum
+from prompt_toolkit import prompt
+from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.completion import Completer, Completion
+import prompt_toolkit.completion as complet
+from prompt_toolkit.document import Document
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.key_binding import KeyBindings
+import random
+import signal
+import threading
+import argparse
+
+class SignaledThread(threading.Thread):
+    def __init__(self, s: socket.socket):
+        threading.Thread.__init__(self)
+        self.signal = True
+        self.s = s
+
+    def run(self):
+        global top_frame
+        s = self.s
+        CONN.settimeout(0.1)
+        while self.signal:
+            try:
+                data = CONN.recv(4)
+            except:
+                continue
+            if len(data) == 0:
+                CONN.close()
+                return
+            reader = PacketReader(data)
+            size = reader.read_uint32()
+            if size == 0:
+                return
+            reader = PacketReader(CONN.recv(size))
+            var = reader.read_string()
+
+            writer = PacketWriter(HLDBPacketType.csCreateExpression)
+            writer.append_uint32(top_frame)
+            writer.append_string(var)
+            writer.send_to(s)
+
+            result_packet, data = read_packet(s)
+            reader = PacketReader(data)
+
+            if result_packet == HLDBPacketType.scExpressionCreated:
+                id = reader.read_uint32()
+                name = reader.read_string()
+                type = reader.read_string()
+                value = reader.read_string()
+                flags = reader.read_uint32()
+                child_count = reader.read_uint32()
+
+                if type == "(CMake Expression)":
+                    w = PacketWriter(IDEType.VariableEvaluation)
+                    w.append_string(value)
+                    w.send_to(CONN)
+                elif type == "(CMake target)":
+                    w = PacketWriter(IDEType.VariableEvaluation)
+                    w.append_string(value)
+                    w.send_to(CONN)
+                else:
+                    print("IDK: listener_thread")
+                    sys.exit(33)
+            else:
+                handle_other_packets(result_packet, data, s)
+
+                # s.send(
+                #     encode_unsigned(HLDBPacketType.csCreateExpression.value)
+                #     + encode_unsigned(length + 8)
+                # )
+                # s.send(
+                #     encode_unsigned(frame)
+                #     + encode_unsigned(length)
+                #     + expression.encode("ascii")
+                # )
+                # result_packet, data = read_packet(s)
+                # if result_packet == HLDBPacketType.scExpressionCreated:
+                #     handle_scExpressionCreated(data, s)
+                # else:
+                #     handle_other_packets(result_packet, data, s)
+
+SOCK = None
+
+
+def encode_unsigned(i: int) -> bytes:
+    return i.to_bytes(4, byteorder="little")
+
+
+def encode_string(s: str) -> bytes:
+    length = len(s)
+    data = encode_unsigned(length) + s.encode("ascii")
+    return data
+
+
+def encode_info(*args):
+    data = bytes()
+    for arg in args:
+        t = type(arg)
+        if t is int:
+            data += encode_unsigned(arg)
+        elif t is str:
+            data += encode_string(arg)
+        else:
+            print(f"Bad encode_info: {t}")
+
+    return data
+
+
+class PacketWriter:
+    def __init__(self, packet_type):
+        self.packet_type = packet_type
+        self.data = bytes()
+
+    def append_uint32(self, i: int):
+        self.data += i.to_bytes(4, byteorder="little")
+
+    def append_string(self, s: str):
+        length = len(s)
+        self.append_uint32(length)
+        self.data += s.encode("ascii")
+
+    def send_to(self, s: socket.socket):
+        s.send(
+            encode_unsigned(self.packet_type.value) + encode_unsigned(len(self.data))
+        )
+        if len(self.data) > 0:
+            s.send(self.data)
+
+
+class PacketReader:
+    def __init__(self, data: bytes):
+        self.data = data
+
+    def read_uint32(self) -> int:
+        i = uint32_from_bytes(self.data[0:3])
+        self.data = self.data[4:]
+        return i
+
+    def read_string(self) -> str:
+        length = self.read_uint32()
+        if length > 0:
+            string = self.data[0:length].decode("ascii")
+            self.data = self.data[length :]
+            return string
+        else:
+            self.data = self.data[length :]
+            return ""
+
+
+def uint32_from_bytes(data):
+    return int.from_bytes(data, byteorder="little")
+
+
+def string_from_bytes(data):
+    return str(bytes)
+
+
+def read_string_at(data):
+    length = uint32_from_bytes(data[0:3])
+    if length > 0:
+        string = data[4 : (4 + length)].decode("ascii")
+        return (string, data[(4 + length) :])
+    else:
+        return ("", data[4:])
+
+
+def read_uint32_at(data):
+    return (uint32_from_bytes(data[0:3]), data[4:])
+
+
+
+
+class CmdbCompleter(Completer):
+    commands = [
+        ("continue", "continue - continue execution of the cmake file"),
+        ("children", "children <id> - get a child properties of a target"),
+        ("break", "break <function> <frame> - set a breakpoint"),
+        (
+            "watch",
+            "watch (r|w) variable - set a watchpoint for reading or writing for a variable",
+        ),
+        ("in", "in - step into a function"),
+        ("out", "out - step out of a function"),
+        ("next", "next - step over a line"),
+        ("list", "list - list all breakpoints and their id numbers"),
+        ("delete", "delete <id> - delete a breakpoint"),
+        ("set", "set <id> <value> - set a varaible with <id> to <value>"),
+        ("expression", "expression <variable> - get the value of a variable"),
+    ]
+
+    def get_completions(self, document: Document, complete_event):
+        if len(document.current_line.split(" ")) == 1:
+            matches = filter(
+                lambda x: x[0].startswith(document.get_word_under_cursor()),
+                CmdbCompleter.commands,
+            )
+            for match in matches:
+                yield Completion(
+                    match[0].lstrip(document.get_word_under_cursor()),
+                    start_position=0,
+                    display=match[0],
+                    display_meta=match[1],
+                )
+
+
+def signal_handler(sig, frame):
+    global SOCK
+    print(f"Found {sig}, {frame}")
+    SOCK.send(encode_unsigned(HLDBPacketType.csBreakIn.value) + encode_unsigned(0))
+
+
+HOST = "127.0.0.1"
+
+
+class HLDBPacketHeader:
+    def __init__(self, packetType, size):
+        self.packetType = HLDBPacketType(packetType)
+        self.size = size
+
+
+class CMakeDomainSpecificBreakpointType(Enum):
+    VariableAccessed = 0
+    VariableUpdated = 1
+    MessageSent = 2
+    TargetCreated = 3
+
+
+class HLDBPacketType(Enum):
+    Invalid = 0
+    scError = 1
+    scHandshake = 2
+    csHandshake = 3
+    scTargetStopped = 4
+    scTargetRunning = 5
+    csContinue = 6
+    csStepIn = 7
+    csStepOut = 8
+    csStepOver = 9
+    csBreakIn = 10
+    csSetNextStatement = 11
+    csTerminate = 12
+    csDetach = 13
+    csCreateExpression = 14
+    scExpressionCreated = 15
+    csQueryExpressionChildren = 16
+    scExpressionChildrenQueried = 17
+    csSetExpressionValue = 18
+    scExpressionUpdated = 19
+    BeforeFirstBreakpointRelatedCommand = 20
+    csCreateBreakpoint = 21
+    csCreateFunctionBreakpoint = 22
+    csCreateDomainSpecificBreakpoint = 23
+    scBreakpointCreated = 24
+    csDeleteBreakpoint = 25
+    csUpdateBreakpoint = 26
+    csQueryBreakpoint = 27
+    scBreakpointQueried = 28
+    scBreakpointUpdated = 29
+    AfterLastBreakpointRelatedCommand = 30
+    scDebugMessage = 31
+    scTargetExited = 32
+
+
+class TargetStopReason(Enum):
+    InitialBreakIn = 0
+    Breakpoint = 1
+    BreakInRequested = 2
+    StepComplete = 3
+    UnspecifiedEvent = 4
+    Exception = 5
+    SetNextStatement = 6
+
+
+class IDEType(Enum):
+    Error = 0
+    FileAndLocation = 1
+    VariableEvaluation = 2
+
+
+class Backtrace:
+    def __init__(self, index, idk, args, file, line):
+        self.index = index
+        self.idk = idk
+        self.args = args
+        self.file = file
+        self.line = line
+
+
+def handle_scExpressionCreated(data, s):
+    reader = PacketReader(data)
+    id = reader.read_uint32()
+    name = reader.read_string()
+    type = reader.read_string()
+    value = reader.read_string()
+    flags = reader.read_uint32()
+    child_count = reader.read_uint32()
+
+    if type == "(CMake Expression)":
+        print(f"ID: {id} - {name} = {value}")
+    elif type == "(CMake target)":
+        print(f"ID: {id} - target: {name}")
+    else:
+        print("name: ", name)
+        print("value: ", value)
+        print("type: ", type)
+        print("flags: ", flags)
+        print("child_count: ", child_count)
+
+
+class Things:
+    def __init__(self, id, name, type, value, zero, children_count):
+        self.id = id
+        self.name = name
+        self.type = type
+        self.value = value
+        self.zero = zero
+        self.children_count = children_count
+
+
+def handle_scExpressionChildrenQueried(data, s):
+    reader = PacketReader(data)
+    count = reader.read_uint32()
+
+    things = []
+
+    for i in range(0, count):
+        id = reader.read_uint32()
+        name = reader.read_string()
+        type = reader.read_string()
+        value = reader.read_string()
+        zero = reader.read_string()
+        children_count = reader.read_string()
+        t = Things(id, name, type, value, zero, children_count)
+        things.append(t)
+
+    for t in things:
+        if t.type == "(property entry)":
+            print(f"{t.name} = {t.value}")
+        else:
+            print(
+                f"{t.id} - {t.name} - {t.value} - {t.type} - {t.zero} - {t.children_count}"
+            )
+
+
+def handle_scTargetStopped(data, s):
+    reader = PacketReader(data)
+    stop_reason_int = reader.read_uint32()
+    stop_reason = TargetStopReason(stop_reason_int)
+
+    int_param = reader.read_uint32()
+    string_param = reader.read_string()
+    backtrace_entry_count = reader.read_uint32()
+
+    backtraces = []
+    # print("backtrace_entry_count: ", backtrace_entry_count)
+
+    for i in range(backtrace_entry_count, 0, -1):
+        index = reader.read_uint32()
+        idk = reader.read_string()
+        args = reader.read_string()
+        file = reader.read_string()
+        line = reader.read_uint32()
+        backtraces.append(Backtrace(index, idk, args, file, line))
+
+    if stop_reason == TargetStopReason.Breakpoint:
+        print("Stopped at breakpoint: ")
+
+    for b in backtraces:
+        # print("index: ", b.index)
+        b.args = b.args.replace(",", "")
+        print(f"{b.index} - {b.file}:{b.line} - {b.idk}({b.args})")
+
+    file_len = len(backtraces[0].file)
+    if CONN is not None:
+        w = PacketWriter(IDEType.FileAndLocation)
+        w.append_uint32(backtraces[0].line)
+        w.append_string(backtraces[0].file)
+        w.send_to(CONN)
+
+    # print("int_param: ", int_param)
+    # print("string_param: ", string_param)
+    return backtrace_entry_count - 1, backtraces[0].file
+
+
+def handle_other_packets(packet, data, s):
+    if packet is None:
+        return None
+
+    if packet == HLDBPacketType.scHandshake:
+        s.send(encode_unsigned(HLDBPacketType.csHandshake.value) + encode_unsigned(0))
+    # elif packet == HLDBPacketType.scTargetStopped:
+    #     handle_scTargetStopped(data, s)
+    elif packet == HLDBPacketType.scTargetExited:
+        print("Target exited")
+        finish(s)
+    elif packet == HLDBPacketType.scError:
+        reader = PacketReader(data)
+        error = reader.read_string()
+        print(f":ERROR: {error}")
+    else:
+        print(f"ERROR, unknown packet: {packet} - {data}")
+
+
+class Breakpoint:
+    def __init__(self, id, keyword, line=None):
+        self.id = id
+        self.keyword = keyword
+        self.line = line
+
+
+# kb = KeyBindings()
+
+# @kb.add('c-space')
+# def _(event):
+#     " Initialize autocompletion, or select the next completion. "
+#     buff = event.app.current_buffer
+#     if buff.complete_state:
+#         buff.complete_next()
+#     else:
+#         buff.start_completion(select_first=False)
+
+
+top_frame = 0
+
+
+def command_loop(s):
+    global top_frame
+    last_command = ""
+    current_file = ""
+    breakpoints = []
+
+    # shoudl be stopped
+    packet, data = read_packet(s)
+    if packet is not HLDBPacketType.scTargetStopped:
+        print("IDK: ERROR")
+        handle_other_packets(packet, data, s)
+
+    top_frame, current_file = handle_scTargetStopped(data, s)
+    target_state = HLDBPacketType.scTargetStopped
+
+    command_completer = WordCompleter(["continue", "breakpoint", "expression", "next"])
+    session = PromptSession(history=FileHistory(os.path.expanduser("~/.cmdb_history")))
+    while True:
+        try:
+            i = session.prompt(
+                "(cmdb) ", completer=CmdbCompleter(), auto_suggest=AutoSuggestFromHistory()
+            ).split(" ")
+            if len(i[0]) > 0:
+                last_command = i
+            else:
+                i = last_command
+                print(" ".join(i))
+            if i[0] == "detach":
+                p = PacketWriter(HLDBPacketType.csDetach)
+                p.send_to(s)
+                finish(s)
+            elif i[0] == "kill" or i[0] == "exit" or i[0].startswith("q"):
+                w = PacketWriter(HLDBPacketType.csTerminate)
+                w.send_to(s)
+                finish(s)
+            elif i[0].startswith("chil"):
+                id = int(i[1])
+                s.send(
+                    encode_unsigned(HLDBPacketType.csQueryExpressionChildren.value)
+                    + encode_unsigned(4)
+                )
+                s.send(encode_unsigned(id))
+
+                result_packet, data = read_packet(s)
+                if result_packet == HLDBPacketType.scExpressionChildrenQueried:
+                    handle_scExpressionChildrenQueried(data, s)
+                else:
+                    handle_other_packets(result_packet, data, s)
+            elif i[0].startswith("un"):
+                line = int(i[1])
+                w = PacketWriter(HLDBPacketType.csCreateBreakpoint)
+                w.append_string(current_file)
+                w.append_uint32(line)
+                w.send_to(s)
+                # print(line, current_file)
+                result_packet, data = read_packet(s)
+                if result_packet is not HLDBPacketType.scBreakpointCreated:
+                    print("Fix this: until")
+                    sys.exit(1)
+                r = PacketReader(data)
+                id = r.read_uint32()
+                # print(id)
+                w = PacketWriter(HLDBPacketType.csContinue)
+                w.send_to(s)
+                while True:
+                    result_packet, data = read_packet(s)
+                    # print(result_packet)
+                    if result_packet == HLDBPacketType.scDebugMessage:
+                        reader = PacketReader(data)
+                        message = reader.read_string()
+                        # print("Debug Message: ", message)
+                    elif result_packet == HLDBPacketType.scTargetRunning:
+                        target_state = HLDBPacketType.scTargetRunning
+                    elif result_packet == HLDBPacketType.scTargetStopped:
+                        # print("Stopped")
+                        target_state = HLDBPacketType.scTargetStopped
+                        top_frame, current_file = handle_scTargetStopped(data, s)
+                        # print("Stopped")
+                        break
+                    # else:
+                    #     handle_other_packets(result_packet, data, s)
+                    else:
+                        print("ERROR, unknown packet: ", result_packet, data)
+                w = PacketWriter(HLDBPacketType.csDeleteBreakpoint)
+                w.append_uint32(id)
+                w.send_to(s)
+                result_packet, data = read_packet(s)
+                if result_packet is not HLDBPacketType.scBreakpointUpdated:
+                    print("Fix this: until")
+                    sys.exit(1)
+
+            elif i[0].startswith("c"):
+                s.send(
+                    encode_unsigned(HLDBPacketType.csContinue.value) + encode_unsigned(0)
+                )
+                result_packet, data = read_packet(s)
+                reader = PacketReader(data)
+                while result_packet == HLDBPacketType.scDebugMessage:
+                    stream = reader.read_uint32()
+                    # message = reader.read_string()
+                    # print("Debug Message: ", message)
+                    result_packet, data = read_packet(s)
+                if result_packet == HLDBPacketType.scTargetRunning:
+                    target_state = HLDBPacketType.scTargetRunning
+                else:
+                    handle_other_packets(result_packet, data, s)
+                result_packet, data = read_packet(s)
+                reader = PacketReader(data)
+                while result_packet == HLDBPacketType.scDebugMessage:
+                    stream = reader.read_uint32()
+                    # message = reader.read_string()
+                    # print("Debug Message: ", message)
+                    result_packet, data = read_packet(s)
+                if result_packet == HLDBPacketType.scTargetStopped:
+                    target_state = HLDBPacketType.scTargetStopped
+                    top_frame, current_file = handle_scTargetStopped(data, s)
+                else:
+                    handle_other_packets(result_packet, data, s)
+            elif i[0].startswith("l"):  # list
+                for bp in breakpoints:
+                    if bp.line == None:
+                        print(f"{bp.id}: {bp.keyword}")
+                    else:
+                        print(f"{bp.id}: {bp.keyword}:{bp.line}")
+            elif i[0].startswith("del"):  # delete
+                id = int(i[1])
+                s.send(
+                    encode_unsigned(HLDBPacketType.csDeleteBreakpoint.value)
+                    + encode_unsigned(4)
+                )
+                s.send(encode_unsigned(id))
+
+                result_packet, data = read_packet(s)
+                if result_packet == HLDBPacketType.scBreakpointUpdated:
+                    for index, bp in enumerate(breakpoints):
+                        if bp.id == id:
+                            del breakpoints[index]
+                            continue
+                else:
+                    handle_other_packets(result_packet, data, s)
+
+            elif i[0] == "set":  # set
+                err = """
+        ERROR - set usage:
+            set <expression id> <value>
+        where the <expression id> is the id shown when calling expr for that variable
+    """
+                if len(i) != 3:
+                    print(err)
+                    continue
+
+                id = int(i[1])
+                var = i[2]
+                var_length = len(var)
+
+                s.send(
+                    encode_unsigned(HLDBPacketType.csSetExpressionValue.value)
+                    + encode_unsigned(4 + 4 + var_length)
+                )
+                s.send(
+                    encode_unsigned(id) + encode_unsigned(var_length) + var.encode("ascii")
+                )
+                result_packet, data = read_packet(s)
+                if result_packet == HLDBPacketType.scExpressionUpdated:
+                    print(f"Expression updated")
+                else:
+                    handle_other_packets(result_packet, data, s)
+            elif i[0].startswith("w"):
+                if i[1].startswith("t"):
+                    type = CMakeDomainSpecificBreakpointType.TargetCreated
+                elif i[1].startswith("r"):
+                    type = CMakeDomainSpecificBreakpointType.VariableAccessed
+                elif i[1].startswith("w"):
+                    type = CMakeDomainSpecificBreakpointType.VariableUpdated
+
+                variable = i[2]
+                var_length = len(variable)
+                s.send(
+                    encode_unsigned(HLDBPacketType.csCreateDomainSpecificBreakpoint.value)
+                    + encode_unsigned(4 + 4 + var_length + 4)
+                )
+                s.send(
+                    encode_unsigned(type.value)
+                    + encode_unsigned(var_length)
+                    + variable.encode("ascii")
+                    + encode_unsigned(0)
+                )
+
+                result_packet, data = read_packet(s)
+                if result_packet == HLDBPacketType.scBreakpointCreated:
+                    reader = PacketReader(data)
+                    id = reader.read_uint32()
+                    breakpoints.append(Breakpoint(id, variable))
+
+                    print(f"Watchpoint id: {id} - created: {variable}")
+                else:
+                    handle_other_packets(result_packet, data, s)
+            elif i[0].startswith("b"):
+                if len(i) == 3:
+                    filename = i[1]
+                    filename_length = len(filename)
+                    line = int(i[2])
+                    s.send(
+                        encode_unsigned(HLDBPacketType.csCreateBreakpoint.value)
+                        + encode_unsigned(4 + filename_length + 4)
+                    )
+                    s.send(
+                        encode_unsigned(filename_length)
+                        + filename.encode("ascii")
+                        + encode_unsigned(line)
+                    )
+                    result = filename + ":" + str(line)
+                elif len(i) == 2:
+                    function = i[1]
+                    length = len(function)
+                    s.send(
+                        encode_unsigned(HLDBPacketType.csCreateFunctionBreakpoint.value)
+                        + encode_unsigned(length + 4)
+                    )
+                    s.send(encode_unsigned(length) + function.encode("ascii"))
+                    result = function
+                else:
+                    print(
+                        """
+        ERROR - usage:
+        break <function>
+        break <function> <stack frame>
+        break <filename> <line number>
+        """
+                    )
+                    continue
+
+                result_packet, data = read_packet(s)
+                if result_packet == HLDBPacketType.scBreakpointCreated:
+                    # TODO: Change this to actually read the data
+
+                    reader = PacketReader(data)
+                    id = reader.read_uint32()
+                    breakpoints.append(Breakpoint(id, result))
+
+                    print(f"Breakpoint id: {id} - created: {result}")
+                else:
+                    handle_other_packets(result_packet, data, s)
+
+            elif i[0].startswith("n"):
+                s.send(
+                    encode_unsigned(HLDBPacketType.csStepOver.value) + encode_unsigned(0)
+                )
+                while True:
+                    result_packet, data = read_packet(s)
+                    # print(result_packet)
+                    if result_packet == HLDBPacketType.scDebugMessage:
+                        reader = PacketReader(data)
+                        message = reader.read_string()
+                        # print("Debug Message: ", message)
+                    elif result_packet == HLDBPacketType.scTargetRunning:
+                        target_state = HLDBPacketType.scTargetRunning
+                    elif result_packet == HLDBPacketType.scTargetStopped:
+                        # print("Stopped")
+                        target_state = HLDBPacketType.scTargetStopped
+                        top_frame, current_file = handle_scTargetStopped(data, s)
+                        # print("Stopped")
+                        break
+                    # else:
+                    #     handle_other_packets(result_packet, data, s)
+                    else:
+                        print("ERROR, unknown packet: ", result_packet, data)
+
+            elif i[0].startswith("in"):
+                s.send(encode_unsigned(HLDBPacketType.csStepIn.value) + encode_unsigned(0))
+                result_packet, data = read_packet(s)
+                while result_packet == HLDBPacketType.scDebugMessage:
+                    result_packet, data = read_packet(s)
+                    # reader = PacketReader(data)
+                    # message = reader.read_string()
+                    # print("Debug Message: ", message)
+                if result_packet == HLDBPacketType.scTargetRunning:
+                    target_state = HLDBPacketType.scTargetRunning
+                else:
+                    print("ERROR, unknown packet: ", result_packet, data)
+                result_packet, data = read_packet(s)
+                while result_packet == HLDBPacketType.scDebugMessage:
+                    result_packet, data = read_packet(s)
+                    # reader = PacketReader(data)
+                    # message = reader.read_string()
+                    # print("Debug Message: ", message)
+                if result_packet == HLDBPacketType.scTargetStopped:
+                    target_state = HLDBPacketType.scTargetStopped
+                    top_frame, current_file = handle_scTargetStopped(data, s)
+                else:
+                    handle_other_packets(result_packet, data, s)
+            elif i[0].startswith("out"):
+                s.send(encode_unsigned(HLDBPacketType.csStepOut.value) + encode_unsigned(0))
+                result_packet, data = read_packet(s)
+                while result_packet == HLDBPacketType.scDebugMessage:
+                    result_packet, data = read_packet(s)
+                    # reader = PacketReader(data)
+                    # message = reader.read_string()
+                    # print("Debug Message: ", message)
+                if result_packet == HLDBPacketType.scTargetRunning:
+                    target_state = HLDBPacketType.scTargetRunning
+                else:
+                    print("ERROR, unknown packet: ", result_packet, data)
+                result_packet, data = read_packet(s)
+                while result_packet == HLDBPacketType.scDebugMessage:
+                    result_packet, data = read_packet(s)
+                    # reader = PacketReader(data)
+                    # message = reader.read_string()
+                    # print("Debug Message: ", message)
+                if result_packet == HLDBPacketType.scTargetStopped:
+                    target_state = HLDBPacketType.scTargetStopped
+                    top_frame, current_file = handle_scTargetStopped(data, s)
+                else:
+                    handle_other_packets(result_packet, data, s)
+            elif i[0].startswith("expr"):
+                err = """
+        ERROR, expr form
+            expr <variable or target> <FrameNumber>
+        or
+            expr <variable or target>
+        the second form assumes the frame of the intial cmakelists file
+                """
+                if len(i) == 3:
+                    try:
+                        frame = int(i[2])
+                    except:
+                        print(err)
+                        continue
+                    expression = i[1]
+                elif len(i) == 2:
+                    frame = top_frame
+                    expression = i[1]
+                else:
+                    print(err)
+                    continue
+
+                result = query_expr_string(expression, 0, s, frame)
+
+                writer = PacketWriter(HLDBPacketType.csCreateExpression)
+                writer.append_uint32(frame)
+                writer.append_string(result)
+                writer.send_to(s)
+
+                result_packet, data = read_packet(s)
+                if result_packet == HLDBPacketType.scExpressionCreated:
+                    handle_scExpressionCreated(data, s)
+                else:
+                    handle_other_packets(result_packet, data, s)
+        except SystemExit as e:
+            raise
+        except:
+            pass
+
+
+def query_expr_string(string: str, start: int, s: socket.socket, frame: int):
+    idx = start
+    buffer = []
+    while idx < len(string):
+        char = string[idx]
+        if char == "$":
+            idx += 1
+            char = string[idx]
+            if char != "{":
+                print("Bad expr string")
+                return None, None
+            idx += 1
+            result, idx = query_expr_string(string, idx, s, frame)
+            if result is None:
+                return None, None
+            buffer += result
+            continue
+        elif char == "}":
+            idx += 1
+            result = query_expr("".join(buffer), s, frame)
+            return result, idx
+        else:
+            buffer.append(char)
+            idx += 1
+            continue
+
+    return "".join(buffer)
+
+
+
+def query_expr(string: str, s: socket.socket, frame: int):
+    writer = PacketWriter(HLDBPacketType.csCreateExpression)
+    writer.append_uint32(frame)
+    writer.append_string(string)
+    writer.send_to(s)
+
+    result_packet, data = read_packet(s)
+    if result_packet == HLDBPacketType.scExpressionCreated:
+        reader = PacketReader(data)
+        id = reader.read_uint32()
+        name = reader.read_string()
+        type = reader.read_string()
+        value = reader.read_string()
+        return value
+    else:
+        return None
+
+
+def read_packet(s):
+    data = s.recv(8)
+    if len(data) == 0:
+        return (None, None)
+    reader = PacketReader(data)
+    packet_int = reader.read_uint32()
+    packet = HLDBPacketType(packet_int)
+    size = reader.read_uint32()
+    # print("read_packet: packet_int: ", packet_int)
+    # print("read_packet: PacketType: ", packet)
+    # print("read_packet: size: ", size)
+    if size == 0:
+        return (packet, None)
+
+    data = s.recv(size)
+    # print("read_packet: ", str(data))
+    return packet, data
+
+
+SERVER = None
+CONN = None
+THREAD = None
+import atexit
+
+def close_socket(*args):
+    for arg in args:
+        arg.close()
+
+def communicate(port, vim):
+    global CONN
+    global THREAD
+    if vim:
+        server_address = "/tmp/cmdb/vim-cmdb"
+        try:
+            os.unlink(server_address)
+        except OSError:
+            if os.path.exists(server_address):
+                raise
+        # SERVER = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # SERVER.bind((HOST, server_port))
+        SERVER = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        if not os.path.exists("/tmp/cmdb"):
+            os.mkdir("/tmp/cmdb")
+        SERVER.bind(server_address)
+        SERVER.listen()
+        CONN, addr = SERVER.accept()
+
+        atexit.register(close_socket, SERVER, CONN)
+
+    global SOCK
+    time.sleep(3)
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        atexit.register(close_socket, s)
+
+        while True:
+            try:
+                # print(HOST)
+                # print(PORT)
+                s.connect((HOST, port))
+                SOCK = s
+                break
+            except:
+                # print("passed")
+                time.sleep(1)
+                pass
+
+        # banner
+        data = s.recv(1024)
+        # print("banner: ", list(data))
+
+        # should be handshake
+        packet, data = read_packet(s)
+        handle_other_packets(packet, data, s)
+        if vim:
+            THREAD = SignaledThread(s)
+            THREAD.start()
+
+        command_loop(s)
+
+
+def launch_cmake(port, args):
+    newpid = os.fork()
+    if newpid == 0:
+        path = os.path.realpath(os.path.abspath(__file__))
+        path = os.path.dirname(path)
+        path = os.path.dirname(path)
+        path = os.path.dirname(path)
+        file = os.path.join(path, "build/bin/cmake")
+        index_of_dashdash = args.index("--")
+        os.execvp(
+            file,
+            [file]
+            + sys.argv[index_of_dashdash + 1 :]
+            + [f"--debug-server-port={port}"],
+        )
+    else:
+        return newpid
+
+
+CHILD_PID = None
+
+
+def finish(s):
+    s.close()
+    global CHILD_PID
+    global THREAD
+    print("wait for child")
+    os.waitpid(CHILD_PID, 0)
+    print("got child")
+    if THREAD is not None:
+        print("THREAD.signal = False")
+        THREAD.signal = False
+        print("THREAD.join()")
+        THREAD.join()
+        print("THREAD.joined()")
+    print("Going to sys exit")
+    sys.exit(0)
+
+
+def parse_args() -> (argparse.Namespace, list):
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-m",
+        "--vim",
+        action="store_true",
+        help="Wait for :CMDBListen from vim before running",
+    )
+    parser.add_argument(
+        "-p",
+        "--port",
+        type=int,
+        help='The port to communicate with cmake on. Do not supply this if you are using "--" to launch cmake via cmdb.',
+    )
+    args, unknown = parser.parse_known_args()
+    return args, unknown
+
+
+if __name__ == "__main__":
+    # signal.signal(signal.SIGINT, signal_handler)
+    arg_namespace, cmake_args = parse_args()
+
+    if arg_namespace.port is not None:
+        port = arg_namespace.port
+    else:
+        port = random.randint(9000, 9900)
+
+    if "--" in cmake_args:
+        CHILD_PID = launch_cmake(port, cmake_args)
+
+    if not "--" in cmake_args and arg_namespace.port is None:
+        print(
+            'cmdb requires either a port to connect to or "--" followed by args to launch cmake with.'
+        )
+        sys.exit(1)
+
+    communicate(port, arg_namespace.vim)

@@ -17,6 +17,11 @@
 #include "cmSystemTools.h"
 #include "cmake.h"
 
+#include <cassert>
+#include "cmGlobalGenerator.h"
+#include "cmake.h"
+#include "HLDPServer/HLDP.h"
+
 namespace {
 
 enum class CheckingType
@@ -176,6 +181,12 @@ bool cmMessageCommand(std::vector<std::string> const& args,
   }
 
   auto message = cmJoin(cmMakeRange(i, args.cend()), "");
+#if !defined(CMAKE_BOOTSTRAP)
+  sp::HLDPServer* pServer =
+    mf.GetGlobalGenerator()->GetCMakeInstance()->GetDebugServer();
+  if (pServer)
+    pServer->OnMessageProduced(type, message);
+#endif
 
   switch (level) {
     case cmake::LogLevel::LOG_ERROR:
